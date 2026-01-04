@@ -10,23 +10,22 @@ from src.servers.mcp_github_tool_server import mcp, user_token_ctx
 # Security & Server Setup
 # ==============================================================================
 
-# Create the main FastAPI application
-app = FastAPI()
+# Create the main FastAPI application. 
+# We create a sub-application router that will be prefixed, 
+# so that FastAPI's own routes (like /docs) are also correctly prefixed.
+sub_app = FastAPI()
 
 # Add middleware to handle Header (Token Passthrough)
-@app.middleware("http")
+@sub_app.middleware("http")
 async def context_middleware(request: Request, call_next):
-    # Only process MCP SSE and Messages endpoints
-    # Check if the path starts with the full mount path
+    # This middleware now operates within the sub_app, so paths are relative to the mount point.
     path = request.url.path
-    if path.startswith("/mcp-github-tools-svc/mcp/sse") or path.startswith("/mcp-github-tools-svc/mcp/messages"):
+    if path.startswith("/mcp/sse") or path.startswith("/mcp/messages"):
         # Extract GitHub Token (Using X-Github-Token Header)
-        # This is a custom header used to pass the GitHub Token through to the Tool
         github_token = request.headers.get("X-Github-Token")
         
         if github_token:
             # If the client provided a GitHub Token, store it in ContextVar
-            # Note: We do not perform authentication here, we trust and pass it through
             user_token_ctx.set(github_token)
             logger.info(f"Received X-Github-Token from {request.client.host}")
         else:
@@ -36,10 +35,13 @@ async def context_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
-# Mount the FastMCP SSE app to the full path to ensure correct URL generation
-# This path should correspond to what the application receives after the Envoy proxy.
+# Mount the FastMCP SSE app to the /mcp path within the sub-application
 mcp_app = mcp.sse_app()
-app.mount("/mcp-github-tools-svc/mcp", mcp_app)
+sub_app.mount("/mcp", mcp_app)
+
+# Create the main application and mount the sub-application under the full prefix
+app = FastAPI()
+app.mount("/mcp-github-tools-svc", sub_app)
 
 if __name__ == "__main__":
     # Run the FastAPI application using uvicorn, instead of running mcp directly
