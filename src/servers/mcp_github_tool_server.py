@@ -1,6 +1,8 @@
 import src.configs.config  # Import to trigger config loading and logging setup
+from typing import Annotated
 from loguru import logger
 from contextvars import ContextVar
+from pydantic import Field
 from fastmcp import FastMCP
 from src.services.github_service import GitHubService
 
@@ -18,13 +20,19 @@ mcp = FastMCP(
 )
 
 @mcp.tool()
-def multiply(a: float, b: float) -> float:
+def multiply(
+    a: Annotated[float, Field(description="The first number to multiply")], 
+    b: Annotated[float, Field(description="The second number to multiply")]
+) -> float:
     """Multiplies two numbers together."""
     logger.info(f"Multiplying {a} and {b}")
     return a * b
 
 @mcp.tool()
-async def get_repo_list(owner: str, limit: int = 10) -> list:
+async def get_repo_list(
+    owner: Annotated[str, Field(description="The GitHub username or organization name")], 
+    limit: Annotated[int, Field(description="The maximum number of repositories to return", default=10)] = 10
+) -> list:
     """Fetches a list of repositories for a given GitHub user."""
     
     # Retrieve the token from ContextVar
