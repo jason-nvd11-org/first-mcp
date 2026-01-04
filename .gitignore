@@ -127,3 +127,4 @@ cython_debug/
 
 # Local Environment Variables
 .env
+docs/query.md
