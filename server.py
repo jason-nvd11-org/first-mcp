@@ -17,11 +17,9 @@ app = FastAPI()
 @app.middleware("http")
 async def context_middleware(request: Request, call_next):
     # Only process MCP SSE and Messages endpoints
-    # Note: Since we mounted to /mcp, the path prefix has changed
-    # When deployed with a root_path, request.url.path might include the prefix or not depending on the proxy config.
-    # We check for the suffix to be safe, or assume the path starts with /mcp relative to the app root.
+    # Check if the path starts with the full mount path
     path = request.url.path
-    if path.endswith("/mcp/sse") or "/mcp/messages" in path:
+    if path.startswith("/mcp-github-tools-svc/mcp/sse") or path.startswith("/mcp-github-tools-svc/mcp/messages"):
         # Extract GitHub Token (Using X-Github-Token Header)
         # This is a custom header used to pass the GitHub Token through to the Tool
         github_token = request.headers.get("X-Github-Token")
@@ -38,10 +36,10 @@ async def context_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
-# Mount the FastMCP SSE app to the /mcp path
-# Avoid mounting to the root path to prevent conflicts with FastAPI middleware
+# Mount the FastMCP SSE app to the full path to ensure correct URL generation
+# This path should correspond to what the application receives after the Envoy proxy.
 mcp_app = mcp.sse_app()
-app.mount("/mcp", mcp_app)
+app.mount("/mcp-github-tools-svc/mcp", mcp_app)
 
 if __name__ == "__main__":
     # Run the FastAPI application using uvicorn, instead of running mcp directly
