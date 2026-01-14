@@ -3,9 +3,25 @@ import os
 import asyncio
 from typing import Annotated
 from loguru import logger
+from contextvars import ContextVar
 from pydantic import Field
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastmcp import FastMCP
 from src.services.github_service import GitHubService
+
+# Create a ContextVar to store the user token
+user_token_ctx = ContextVar("user_token", default=None)
+
+# Define Middleware to capture Token from Header
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Extract X-Github-Token header
+        token = request.headers.get("X-Github-Token")
+        if token:
+            user_token_ctx.set(token)
+            logger.info(f"Captured X-Github-Token from {request.client.host}")
+        return await call_next(request)
 
 # Create a basic server instance with instructions
 mcp = FastMCP(
@@ -30,15 +46,20 @@ def multiply(
 async def get_repo_list(
     owner: Annotated[str, Field(description="The GitHub username or organization name")], 
     limit: Annotated[int, Field(description="The maximum number of repositories to return", default=10)] = 10,
-    token: Annotated[str | None, Field(description="GitHub Personal Access Token (Optional). If not provided, server default will be used.")] = None
+    token: Annotated[str | None, Field(description="GitHub Personal Access Token (Optional). If not provided, checks Header or server default.")] = None
 ) -> list:
     """Fetches a list of repositories for a given GitHub user."""
     
-    if token:
+    # 1. Try explicit argument
+    # 2. Try ContextVar (Header)
+    # 3. Fallback to None (Service will use Env)
+    final_token = token or user_token_ctx.get()
+    
+    if final_token:
         # Mask the token for logging
-        masked_token = f"{token[:4]}...{token[-4:]}"
+        masked_token = f"{final_token[:4]}...{final_token[-4:]}"
         logger.info(f"Using Client-Provided Token: {masked_token}")
-        service = GitHubService(_token=token)
+        service = GitHubService(_token=final_token)
     else:
         logger.info("No Client Token provided, using Server Environment Token.")
         service = GitHubService()
@@ -54,6 +75,17 @@ def get_config() -> dict:
 
 if __name__ == "__main__":
     # Start the server using Streamable HTTP transport
-    # Note: We bind to 0.0.0.0 and port 8000 for container compatibility
-    logger.info("Starting FastMCP server in Streamable HTTP mode on port 8000...")
-    mcp.run(transport="http", host="0.0.0.0", port=8000)
+    # Inject our AuthMiddleware to handle headers
+    # Cloud Run injects the PORT environment variable
+    port = int(os.getenv("PORT", 8000))
+    # We set the path to match the full Envoy path so that relative URLs work correctly
+    # Envoy passes the full path /mcp-github-tools-svc/mcp without rewriting
+    mcp_path = "/mcp-github-tools-svc/mcp"
+    logger.info(f"Starting FastMCP server in Streamable HTTP mode on port {port} at path {mcp_path}...")
+    mcp.run(
+        transport="http", 
+        host="0.0.0.0", 
+        port=port, 
+        middleware=[Middleware(AuthMiddleware)],
+        path=mcp_path
+    )

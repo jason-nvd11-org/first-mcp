@@ -7,6 +7,8 @@ RUN pip3 install -r requirements.txt
 
 COPY . .
 
-CMD ["python3", "server.py"]
+ENV PYTHONPATH=/app
+
+CMD ["python3", "src/servers/mcp_github_tool_server.py"]
 
 EXPOSE 8000

@@ -16,14 +16,26 @@ async def main():
         print("ERROR: GITHUB_TOKEN not found in .env file.")
         return
 
-    # Configure the transport to connect to the local server
-    # --- Local Test URL ---
-    url = "http://127.0.0.1:8000/mcp"
+    # Configure the transport to connect to the server
     
-    # --- Deployed GCP URL ---
+    # --- Local Test URL ---
+    # Note: Server is now mounted at /mcp-github-tools-svc/mcp for Envoy compatibility
+    # url = "http://127.0.0.1:8000/mcp-github-tools-svc/mcp"
+    
+    # --- Deployed GCP URL (Direct) ---
     # url = "https://mcp-github-tools-svc-7hq3m4pdya-nw.a.run.app/mcp"
 
-    transport = StreamableHttpTransport(url=url)
+    # --- Deployed GCP URL (Via Envoy) ---
+    url = "https://www.jpgcp.cloud/mcp-github-tools-svc/mcp"
+
+    # Pass the GitHub Token via HTTP Headers
+    # This tests the AuthMiddleware and ContextVar logic
+    transport = StreamableHttpTransport(
+        url=url,
+        headers={
+            "X-Github-Token": github_token
+        }
+    )
     
     # Create a client instance
     client = Client(transport=transport)
@@ -38,14 +50,15 @@ async def main():
             tool_names = [t.name for t in tools]
             print(f"Available tools: {tool_names}")
             
-            # --- Test Case 1: get_repo_list (without limit, pass token explicitly) ---
-            print("\n--- Testing get_repo_list (without limit, with token) ---")
+            # --- Test Case 1: get_repo_list (without limit, token via Header) ---
+            print("\n--- Testing get_repo_list (token via Header) ---")
             try:
+                # Note: We do NOT pass 'token' in arguments here.
+                # The server should pick it up from the X-Github-Token header we configured in transport.
                 result = await session.call_tool(
                     "get_repo_list", 
                     arguments={
-                        "owner": "nvd11",
-                        "token": github_token # Explicitly passing token as argument
+                        "owner": "nvd11"
                     }
                 )
                 print("SUCCESS! Result:")
@@ -53,9 +66,10 @@ async def main():
             except Exception as e:
                 print(f"ERROR: {e}")
 
-            # --- Test Case 2: get_repo_list (with limit) ---
-            print("\n--- Testing get_repo_list (with limit, with token) ---")
+            # --- Test Case 2: get_repo_list (with limit, explicit token override) ---
+            print("\n--- Testing get_repo_list (explicit token override) ---")
             try:
+                # Even with Header present, explicit argument should take precedence (or work just as well)
                 result = await session.call_tool(
                     "get_repo_list", 
                     arguments={
