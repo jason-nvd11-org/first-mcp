@@ -1,13 +1,11 @@
 import src.configs.config  # Import to trigger config loading and logging setup
+import os
+import asyncio
 from typing import Annotated
 from loguru import logger
-from contextvars import ContextVar
 from pydantic import Field
 from fastmcp import FastMCP
 from src.services.github_service import GitHubService
-
-# Create a ContextVar to store the user token
-user_token_ctx = ContextVar("user_token", default=None)
 
 # Create a basic server instance with instructions
 mcp = FastMCP(
@@ -31,22 +29,18 @@ def multiply(
 @mcp.tool()
 async def get_repo_list(
     owner: Annotated[str, Field(description="The GitHub username or organization name")], 
-    limit: Annotated[int, Field(description="The maximum number of repositories to return", default=10)] = 10
+    limit: Annotated[int, Field(description="The maximum number of repositories to return", default=10)] = 10,
+    token: Annotated[str | None, Field(description="GitHub Personal Access Token (Optional). If not provided, server default will be used.")] = None
 ) -> list:
     """Fetches a list of repositories for a given GitHub user."""
     
-    # Retrieve the token from ContextVar
-    client_token = user_token_ctx.get()
-    
-    if client_token:
+    if token:
         # Mask the token for logging
-        masked_token = f"{client_token[:4]}...{client_token[-4:]}"
+        masked_token = f"{token[:4]}...{token[-4:]}"
         logger.info(f"Using Client-Provided Token: {masked_token}")
-        # Use the client provided token for the service
-        service = GitHubService(_token=client_token)
+        service = GitHubService(_token=token)
     else:
-        logger.info("No Client Token found, using Server Environment Token.")
-        # Fallback to default behavior (env var)
+        logger.info("No Client Token provided, using Server Environment Token.")
         service = GitHubService()
 
     logger.info(f"Fetching up to {limit} repositories for user: {owner}")
@@ -57,3 +51,9 @@ async def get_repo_list(
 def get_config() -> dict:
     """Provides the application configuration."""
     return {"theme": "dark", "version": "1.0"}
+
+if __name__ == "__main__":
+    # Start the server using Streamable HTTP transport
+    # Note: We bind to 0.0.0.0 and port 8000 for container compatibility
+    logger.info("Starting FastMCP server in Streamable HTTP mode on port 8000...")
+    mcp.run(transport="http", host="0.0.0.0", port=8000)
